@@ -1,3 +1,4 @@
+from __future__ import division
 from sklearn.preprocessing import normalize
 import numpy as np
 import random
@@ -37,80 +38,103 @@ def stochasticCVB0(documents=None,
     #@param tau, kappa, scale. Step size parameters for topics.
     #@param tau2, kappa2. Step size parameters for theta.
     
-    numDocuments = documents.size;
-    alpha        = np.ones((1,numTopics)) * alpha
-    eta          = np.ones((1,numWords))  * eta
+    numDocuments = len(documents);
+    alpha        = np.ones(numTopics) * alpha
+    eta          = np.ones(numWords)  * eta
     etaSum       = sum(eta)
     
     randomDocId     = random.randint(0,numDocuments-1)
     numTokens       = numDocuments * len(documents[randomDocId])
-    topicCounts     = np.ones((1,numTopics)) * numTokens / numTopics
+    topicCounts     = np.ones(numTopics) * numTokens / numTopics
     wordTopicCounts = np.ones((numWords, numTopics)) * numTokens / (numWords * numTopics)
     
-    documentsLength    = np.vectorize(lambda x: x.size)(documents)
+    documentsLength    = (np.vectorize(lambda x: x.size)(documents)).reshape(numDocuments,1)
     totalWordsInCorpus = documentsLength.sum()
     
     documentTopicCounts = np.random.rand(numDocuments, numTopics)
     documentTopicCounts = normalize(documentTopicCounts, axis=1, norm="l1") * documentsLength
     
-    noOfBatches            = documents.size // minibatchSize
+    noOfBatches            = numDocuments // minibatchSize
     batchWordTopicCounts   = np.zeros((numWords, numTopics))
-    batchTopicCounts       = np.zeros((1, numTopics))
+    batchTopicCounts       = np.zeros(numTopics)
     miniBatchWordsinCorpus = 0
     
+    stepSize = scale / (tau**kappa)
     for i in range(numIterations):
-        docId = i % documents.size
+        docId = i % numDocuments
         docLength = documentsLength[docId]
         
         for burn in range(burnInPerDoc):
             for i,wordId in enumerate(documents[docId]):
-                stepSize2 = (i + burn * docLength + tau2)^-kappa2
-
+                stepSize2 = (i + burn * docLength + tau2) ** -kappa2
+                
                 # SCVB0 estimate of gamma for current token.
-                probs = (wordTopicCounts[wordId] + eta[0,wordId]) \
-                         *(documentTopicCounts[docInd] + alpha) \
-                         /(topicCounts + etaSum)
+                probs = (wordTopicCounts[wordId] + eta[wordId]) \
+                         *(documentTopicCounts[docId] + alpha) \
+                         / (topicCounts + etaSum)
 
                 probs = probs / sum(probs)
                 
                 # update document statistics.
-                documentTopicCounts[docInd] = (1 - stepSize2) * documentTopicCounts[docInd] + \
+                documentTopicCounts[docId] = (1 - stepSize2) * documentTopicCounts[docId] + \
                     stepSize2 * docLength * probs
 
         # Process a document
         for i,wordId in enumerate(documents[docId]):
-            stepSize2 = (i + burnInPerDoc * docLength + tau2)^-kappa2
+            stepSize2 = (i + burnInPerDoc * docLength + tau2) ** -kappa2
 
             # SCVB0 estimate of gamma for current token.
-            probs = (wordTopicCounts[wordId] + eta[0,wordId]) \
-                 *(documentTopicCounts[docInd] + alpha) \
+            probs = (wordTopicCounts[wordId] + eta[wordId]) \
+                 *(documentTopicCounts[docId] + alpha) \
                  /(topicCounts + etaSum)
 
             probs = probs / sum(probs);
 
-            documentTopicCounts[docId] = (1 - stepSize2) * documentTopicCounts[docInd] + \
+            documentTopicCounts[docId] = (1 - stepSize2) * documentTopicCounts[docId] + \
                 stepSize2 * docLength * probs
 
             # update minibatch counts for topic statistics
             batchWordTopicCounts[wordId] = batchWordTopicCounts[wordId] + probs
             batchTopicCounts = batchTopicCounts + probs
 
-        miniBatchWordsinCorpus += 1
+            miniBatchWordsinCorpus += 1
 
         # Processed a batch
         if i % minibatchSize == 0:
-            stepSize = 1 - (1-stepSize)^minibatchSize
+            stepSize = 1 - (1-stepSize)**minibatchSize
 
             # Update the minibatch results.
             wordTopicCounts = (1 - stepSize) * wordTopicCounts + \
                 stepSize * (totalWordsInCorpus/miniBatchWordsinCorpus) * batchWordTopicCounts
             topicCounts = (1 - stepSize) * topicCounts + \
-                stepSize * (totalWordsInCorpus/miniBatchesPerCorpus) * batchTopicCounts
-            batchWordTopicCounts = batchWordTopicCounts * 0
-            topicCounts = topicCounts * 0
+                stepSize * (totalWordsInCorpus/miniBatchWordsinCorpus) * batchTopicCounts
             
+            batchWordTopicCounts = batchWordTopicCounts * 0
+            batchTopicCounts = batchTopicCounts * 0
             miniBatchWordsinCorpus = 0
 
-            stepSize = scale / (i + tau)^kappa
+            stepSize = scale / ((i + tau)**kappa)
     
-    
+    print ("Top Words for each topic")
+    for topicWordCounts in wordTopicCounts.T:
+        print([wordDict[w] for w in np.array(topicWordCounts).argsort()[-10:]])
+        
+        
+import scipy.io as sio
+data = sio.loadmat('nips.mat')
+documents = [d[0][0].flatten() -1 
+             for d in data["documents"]]
+numWords = data["numWords"][0][0]
+keys = sio.loadmat('keys.mat')
+word_ids = [k[0][0]-1 
+            for k in keys["Key"][0]]
+vals = sio.loadmat('vals.mat')
+words = [v[0] 
+         for v in vals["Vals"][0]]
+wordDict = dict(zip(word_ids, words))
+
+stochasticCVB0(documents=documents, 
+               numTopics=50, 
+               numWords=numWords, 
+               numIterations=30000, 
+               wordDict=wordDict)
