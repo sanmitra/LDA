@@ -50,6 +50,9 @@ def generateAlias(probs):
     return A
 
 def debugAlias(A):
+    """
+    Convert an alias table back into probabilities for debugging purposes.
+    """
     l = len(A)
     linv = 1.0/l
     probs = [0]*l
@@ -59,6 +62,9 @@ def debugAlias(A):
     return np.array(probs)
 
 def sampleAlias(A):
+    """
+    Draw a sample from an alias table.
+    """
     l = len(A)
     u = random.random()
     bin = int(math.floor(u*l))
